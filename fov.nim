@@ -1,4 +1,4 @@
-import math, sugar
+import math, sugar, sets
 
 type
   Coord* = tuple[x, y: int]
@@ -75,15 +75,15 @@ let Octants = [
   (rotate: (-1.0, -1.0), swap: true)
 ]
 
-proc scan(self: Fov, left, right: Vector, oct: Octant): seq[Coord]
+proc scan(self: Fov, left, right: Vector, oct: Octant): HashSet[Coord]
 
-proc scanNext(self: Fov, tail, prev: FCoord, oct: Octant): seq[Coord] {.inline.} =
+proc scanNext(self: Fov, tail, prev: FCoord, oct: Octant): HashSet[Coord] {.inline.} =
   self.scan(
     Vector(fcoord: tail, dir: oct.apply((1.0, self.slope(tail)))).step,
     Vector(fcoord: prev, dir: oct.apply((1.0, self.slope(prev)))).step,
     oct)
 
-proc scan(self: Fov, left, right: Vector, oct: Octant): seq[Coord] =
+proc scan(self: Fov, left, right: Vector, oct: Octant): HashSet[Coord] =
   var
     head = Vector(fcoord: left.fcoord, dir: oct.apply((0.0, 1.0)))
     tail = head.fcoord
@@ -92,10 +92,10 @@ proc scan(self: Fov, left, right: Vector, oct: Octant): seq[Coord] =
   let diff = (right.fcoord.abs - left.fcoord.abs).abs.coord
   for _ in 0 .. max(diff.x, diff.y):
     if self.isInside(head):
-      result.add(head.coord)
+      result.incl(head.coord)
     if self.isBlock(head.coord):
       if prevIsOpen:
-        result &= self.scanNext(tail, prev, oct)
+        result.incl(self.scanNext(tail, prev, oct))
       prevIsOpen = false
     else:
       if not prevIsOpen:
@@ -104,15 +104,15 @@ proc scan(self: Fov, left, right: Vector, oct: Octant): seq[Coord] =
     prev = head.fcoord
     head = head.step
   if prevIsOpen:
-    result &= self.scanNext(tail, prev, oct)
+    result.incl(self.scanNext(tail, prev, oct))
 
-proc coords*(self: Fov): seq[Coord] =
-  result = @[self.origin.coord]
+proc coords*(self: Fov): HashSet[Coord] =
+  result = toHashSet([self.origin.coord])
   for oct in Octants:
     let
       left = Vector(fcoord: self.origin, dir: oct.apply((1.0, 0.0)))
       right = Vector(fcoord: self.origin, dir: oct.apply((1.0, 1.0)))
-    result &= self.scan(left.step, right.step, oct)
+    result.incl(self.scan(left.step, right.step, oct))
 
 iterator items*(self: Fov): Coord {.inline.} =
   for c in self.coords:
