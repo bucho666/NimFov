@@ -1,119 +1,73 @@
-import math, sugar, sets
+import math, sets, sugar
 
-type
-  Coord* = tuple[x, y: int]
-  FCoord = tuple[x, y: float]
+type Coord* = tuple[x, y: int]
 
-proc abs(self: Coord): Coord {.inline.} =
-  (x: self.x.abs, y:self.y.abs)
-
-proc fcoord(self: Coord): FCoord {.inline.} =
-  (x: self.x.toFloat, y: self.y.toFloat)
-
-proc `+`(self, other: FCoord): FCoord {.inline.} =
+proc `+`(self, other: Coord): Coord {.inline.} =
   (x: self.x + other.x, y: self.y + other.y)
 
-proc `-`(self, other: FCoord): FCoord {.inline.} =
-  (x: self.x - other.x, y: self.y - other.y)
-
-proc `*`(self, other: FCoord): FCoord {.inline.} =
-  (x: self.x * other.x, y: self.y * other.y)
-
-proc abs(self: FCoord): FCoord {.inline.} =
-  (x: self.x.abs, y:self.y.abs)
-
-proc coord(self: FCoord): Coord {.inline.} =
-  (x: self.x.round.int, y: self.y.round.int)
-
-proc swap(self: FCoord): FCoord {.inline.} =
+proc swap(self: Coord): Coord {.inline.} =
   (x: self.y, y: self.x)
 
-type
-  Octant = tuple[rotate: FCoord, swap: bool]
+type Octant = tuple[rotate: Coord, swap: bool]
 
-proc apply(self: Octant, c: FCoord): FCoord =
-  result = c * self.rotate
-  if self.swap:
-    result = result.swap
+proc apply(self: Octant, x, y: int): Coord =
+  result = (x * self.rotate.x, y * self.rotate.y)
+  if self.swap: result = result.swap
 
-type
-  Vector = object
-    fcoord*, dir: FCoord
+type Fov = ref object
+  origin: Coord
+  radiusSquare: int
+  oct: Octant
+  isBlock: (Coord) -> bool
 
-proc coord(self: Vector): Coord {.inline.} =
-  self.fcoord.coord
+proc newFov*(radius: int, isBlock: (Coord) -> bool): Fov =
+  Fov(radiusSquare: radius ^ 2, isBlock: isBlock)
 
-proc step(self: Vector): Vector {.inline.} =
-  Vector(fcoord: self.fcoord + self.dir, dir: self.dir)
+proc translateMapCoord(self: Fov, x, y: int): Coord {.inline.} =
+  self.origin + self.oct.apply(x, y)
 
-type
-  Fov = ref object
-    origin: FCoord
-    radius: int
-    radiusSquare: int
-    isBlock: (Coord) -> bool
+proc inRadius(self: Fov, x, y: int): bool =
+  (x ^ 2) + (y ^ 2) < self.radiusSquare
 
-proc newFov*(origin: Coord, radius: int, isBlock:(Coord) -> bool): Fov =
-  Fov(origin: origin.fcoord, radius: radius, radiusSquare: radius ^ 2, isBlock: isBlock)
-
-proc isInside(self: Fov, v: Vector): bool {.inline.} =
-  let diff = (self.origin - v.fcoord).coord.abs
-  diff.x ^ 2 + diff.y ^ 2 < self.radiusSquare
-
-proc slope(self: Fov, fcoord: FCoord): float {.inline.} =
-  let diff = (self.origin.abs - fcoord.abs).abs
-  min(diff.x, diff.y) / max(diff.x, diff.y)
+proc scan(self: Fov, row, startSlope, endSlope: float): HashSet[Coord] =
+  let
+    endY = round(row * endSlope)
+    x = row.int
+  var
+    y = round(row * startSlope)
+    nextStartSlope = startSlope
+    mapCoord = self.translateMapCoord(x, y.int)
+    blocked = self.isBlock(mapCoord)
+  if x ^ 2 >= self.radiusSquare: return
+  while y >= endY:
+    mapCoord = self.translateMapCoord(x, y.int)
+    if self.inRadius(x, y.int):
+      result.incl(mapCoord)
+    if self.isBlock(mapCoord):
+      if not blocked:
+        result.incl(self.scan(row + 1.0, nextStartSlope, (y + 0.5) / (row - 0.5)))
+      blocked = true
+    elif blocked:
+      nextStartSlope = (y + 0.5) / (row + 0.5)
+      blocked = false
+    y -= 1.0
+  if not blocked:
+    result.incl(self.scan(row + 1.0, nextStartSlope, endSlope))
 
 let Octants = [
-  (rotate: ( 1.0,  1.0), swap: false),
-  (rotate: ( 1.0,  1.0), swap: true),
-  (rotate: ( 1.0, -1.0), swap: false),
-  (rotate: ( 1.0, -1.0), swap: true),
-  (rotate: (-1.0,  1.0), swap: false),
-  (rotate: (-1.0,  1.0), swap: true),
-  (rotate: (-1.0, -1.0), swap: false),
-  (rotate: (-1.0, -1.0), swap: true)
+  (rotate: ( 1,  1), swap: false),
+  (rotate: ( 1,  1), swap: true),
+  (rotate: ( 1, -1), swap: false),
+  (rotate: ( 1, -1), swap: true),
+  (rotate: (-1,  1), swap: false),
+  (rotate: (-1,  1), swap: true),
+  (rotate: (-1, -1), swap: false),
+  (rotate: (-1, -1), swap: true)
 ]
 
-proc scan(self: Fov, left, right: Vector, oct: Octant): HashSet[Coord]
-
-proc scanNext(self: Fov, tail, prev: FCoord, oct: Octant): HashSet[Coord] {.inline.} =
-  self.scan(
-    Vector(fcoord: tail, dir: oct.apply((1.0, self.slope(tail)))).step,
-    Vector(fcoord: prev, dir: oct.apply((1.0, self.slope(prev)))).step,
-    oct)
-
-proc scan(self: Fov, left, right: Vector, oct: Octant): HashSet[Coord] =
-  var
-    head = Vector(fcoord: left.fcoord, dir: oct.apply((0.0, 1.0)))
-    tail = head.fcoord
-    prev = head.fcoord
-    prevIsOpen = false
-  let diff = (right.fcoord.abs - left.fcoord.abs).abs.coord
-  for _ in 0 .. max(diff.x, diff.y):
-    if self.isInside(head):
-      result.incl(head.coord)
-    if self.isBlock(head.coord):
-      if prevIsOpen:
-        result.incl(self.scanNext(tail, prev, oct))
-      prevIsOpen = false
-    else:
-      if not prevIsOpen:
-        tail = head.fcoord
-      prevIsOpen = true
-    prev = head.fcoord
-    head = head.step
-  if prevIsOpen:
-    result.incl(self.scanNext(tail, prev, oct))
-
-proc coords*(self: Fov): HashSet[Coord] =
-  result = toHashSet([self.origin.coord])
+proc calculate*(self: Fov, origin: Coord): HashSet[Coord] =
+  self.origin = origin
+  result = toHashSet([self.origin])
   for oct in Octants:
-    let
-      left = Vector(fcoord: self.origin, dir: oct.apply((1.0, 0.0)))
-      right = Vector(fcoord: self.origin, dir: oct.apply((1.0, 1.0)))
-    result.incl(self.scan(left.step, right.step, oct))
-
-iterator items*(self: Fov): Coord {.inline.} =
-  for c in self.coords:
-    yield c
+    self.oct = oct
+    result.incl(self.scan(1.0, 1.0, 0.0))

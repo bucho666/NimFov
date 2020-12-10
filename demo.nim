@@ -15,12 +15,20 @@ let
     "####.##############.##########.........##.#",
     "####................##############=######.#",
     "###################.......................#",
+    "###################.#######################",
+    "#.........................................#",
+    "#.........................................#",
+    "#.........................................#",
+    "#..................#......................#",
+    "#.........................................#",
+    "#.........................................#",
+    "#.........................................#",
     "###########################################",
   ]
   dirTable = {
     'l': (x:  1, y:  0), 'h': (x: -1, y:  0),
     'j': (x:  0, y:  1), 'k': (x:  0, y: -1),
-    'y': (x: -1, y: -1), 'm': (x: -1, y:  1),
+    'y': (x: -1, y: -1), 'b': (x: -1, y:  1),
     'u': (x:  1, y: -1), 'n': (x:  1, y:  1),
   }.toTable
   tileColors = {
@@ -32,21 +40,16 @@ let
 var
   key: char
   p = (x:4, y:3)
-  memory = initHashSet[fov.Coord]()
-resetAttributes()
-let isOut = (c: Coord) => c.x >= map[0].len or c.y >= map.len or c.x < 0 or c.y < 0
+  memory = initHashSet[Coord]()
+  sight = newFov(10, (c: Coord) => map[c.y][c.x] == '#')
 while key != 'q':
   eraseScreen()
   setCursorPos(0, 0)
-  let views = newFov(p, 10, (c: Coord) => isOut(c) or map[c.y][c.x] == '#').coords
-  memory.excl(views)
-  for c in memory:
-    if isOut(c): continue
+  let views = sight.calculate(p)
+  for c in memory - views:
     setCursorPos(c.x, c.y)
-    let t = map[c.y][c.x]
-    stdout.styledWrite(tileColors[t], $t)
+    stdout.styledWrite(fgWhite, $map[c.y][c.x])
   for c in views:
-    if isOut(c): continue
     setCursorPos(c.x, c.y)
     let t = map[c.y][c.x]
     stdout.styledWrite(tileColors[t], styleBright, $t)
